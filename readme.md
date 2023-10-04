@@ -1,6 +1,6 @@
 # Como ejecutar esto?
 
-Foobar is a Python library for dealing with word pluralization.
+Detalle de como empezar a trabajar con este repo
 
 ## Descargar el rosbag y colocarlos en la carpera resources
 
