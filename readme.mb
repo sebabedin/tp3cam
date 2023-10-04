@@ -1,0 +1,28 @@
+# Como ejecutar esto?
+
+Foobar is a Python library for dealing with word pluralization.
+
+## Lanzar los nodos necesarios
+
+Lanzar el rosbag
+En una consola
+
+```bash
+. source.sh
+./rosbag.sh
+```
+
+Lanzar el nodo estereo image proc
+En otra consola
+
+```bash
+. source.sh
+./stereo.sh
+```
+
+## Lanzar el script del TP necesario
+
+```bash
+. source.sh
+python ./src.imgstereo_pt08.py
+```
