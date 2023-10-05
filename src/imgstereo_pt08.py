@@ -69,10 +69,6 @@ class CheStereoCamera(object):
     def NewImagesMsg(self, left_img_msg, right_img_msg):
         self.node.get_logger().info('New Images')
 
-        # if (not self.left.info_is_ready) or (not self.right.info_is_ready):
-        #     self.node.get_logger().warning('Cameras are not ready')
-        #     return False
-
         if not self.left.NewImageMsg(left_img_msg):
             return False
         
@@ -152,78 +148,9 @@ class TP3Node(Node):
     def PubKeypoints(self):
         self.GenericPubImg(self.pub_left_img_kp, self.stereo.left.DrawKeypoints())
         self.GenericPubImg(self.pub_right_img_kp, self.stereo.right.DrawKeypoints())
-        # self.imgData_left.PubKeypoints()
-        # self.imgData_rigth.PubKeypoints()
 
     def PubMatches(self):
         self.GenericPubImg(self.pub_stereo_matches, self.stereo.DrawMatches())
-
-
-
-
-
-
-    # class StereoImgData(object):
-
-    #     class ImgData(object):
-    #         LEFT_INDEX = 0
-    #         RIGHT_INDEX = 1
-            
-    #         def __init__(self, cam_index, node, img):
-    #             self.node = node
-    #             self.cam_index = cam_index
-                
-    #             self.pub_img_kp = self.node.pub_img_right_kp_ if self.RIGHT_INDEX == cam_index else self.node.pub_img_left_kp_
-
-    #             self.img = img
-    #             self.kp = self.node.orb_.detect(self.img, None)
-    #             self.kp, self.des = self.node .orb_.compute(self.img, self.kp)
-            
-    #         def DrawKeypoints(self):
-    #             return cv2.drawKeypoints(
-    #                 self.img,
-    #                 self.kp,
-    #                 outImage = None,
-    #                 color=(255,0,0))
-            
-    #         def PubKeypoints(self):
-    #             self.node.PubImg(self.pub_img_kp, self.DrawKeypoints())
-        
-    #     def __init__(self, node, image_left, image_right):
-    #         self.node = node
-    #         self.imgData_left = self.ImgData(self.ImgData.LEFT_INDEX, node, image_left)
-    #         self.imgData_rigth = self.ImgData(self.ImgData.RIGHT_INDEX, node, image_right)
-
-    #         self.matches = self.node.bf_.knnMatch(
-    #             self.imgData_left.des,
-    #             self.imgData_rigth.des,
-    #             k=2)
-            
-    #         # Need to draw only good matches, so create a mask
-    #         self.good_matches = [[0,0] for i in range(len(self.matches))]
-            
-    #         # ratio test as per Lowe's paper
-    #         for i,(m,n) in enumerate(self.matches):
-    #             if m.distance < 0.75*n.distance:
-    #                 self.good_matches[i]=[1,0]
-        
-    #     def PubKeypoints(self):
-    #         self.imgData_left.PubKeypoints()
-    #         self.imgData_rigth.PubKeypoints()
-        
-    #     def DrawMatches(self):
-    #         return cv2.drawMatchesKnn(
-    #             self.imgData_left.img, self.imgData_left.kp, 
-    #             self.imgData_rigth.img, self.imgData_rigth.kp,
-    #             self.matches,
-    #             outImg=None,
-    #             # matchColor=(0, 255, 0),
-    #             matchesMask=self.good_matches,
-    #             # singlePointColor=(255, 0, 0),
-    #             flags=0)
-
-    #     def PubMatches(self):
-    #         self.node.PubImg(self.node.pub_img_matches_, self.DrawMatches())
 
 def main(args=None):
     rclpy.init(args=args)
