@@ -110,10 +110,10 @@ class CheStereoCamera(object):
             self.homography, mask = cv2.findHomography(self.pts_left, self.pts_right, cv2.RANSAC,5.0)
             print(self.homography)
 
-            left = np.array([list(x.pt) for x in self.left.kp])
-            right = np.array([list(x.pt) for x in self.right.kp])
-            self.homography, mask = cv2.findHomography(left, right, cv2.RANSAC,5.0)
-            print(self.homography)
+            # left = np.array([list(x.pt) for x in self.left.kp])
+            # right = np.array([list(x.pt) for x in self.right.kp])
+            # self.homography, mask = cv2.findHomography(left, right, cv2.RANSAC,5.0)
+            # print(self.homography)
             
             self.ransac_mask = mask.ravel().tolist()
             return True

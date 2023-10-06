@@ -161,12 +161,12 @@ class CheStereoCamera(object):
 
         self.Filter_Matches()
         self.Triangulate()
+        self.DisparityMap()
         
         if not self.FindHomography():
             self.node.get_logger().warn('Homography Fault')
             return False
 
-        self.DisparityMap():
         
         if self.first_sterep_image:
             self.first_sterep_image = False
@@ -189,8 +189,26 @@ class CheStereoCamera(object):
         left_img8 = self.left.img
         right_img8 = self.right.img
 
-        stereo = cv2.StereoBM_create(numDisparities=16, blockSize=15)
+        # stereo = cv2.StereoSGBM_create(numDisparities=16, blockSize=15)
+
+        stereo = cv2.StereoSGBM_create(
+            minDisparity=0,          # Minimum disparity value (usually 0)
+            numDisparities=64,       # Number of disparity levels
+            blockSize=3,             # Block size for matching
+            P1=8 * 1 * 3**2,         # Penalty 1 parameter
+            P2=32 * 1 * 3**2,        # Penalty 2 parameter
+            disp12MaxDiff=1,         # Maximum allowed difference in the left-right disparity
+            preFilterCap=63,         # Pre-filter cap
+            uniquenessRatio=10,      # Uniqueness ratio
+            speckleWindowSize=100,   # Speckle window size
+            speckleRange=1,         # Speckle range
+            #mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
+        )
+
         self.disparity = stereo.compute(left_img8, right_img8)
+# /        self.disparity = cv::normalize(self.disparity, dst, 0, 255, NORM_MINMAX, CV_8UC1);
+        self.disparity = cv2.normalize(self.disparity, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
         return True
 
     def DrawMatches(self):
