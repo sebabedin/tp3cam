@@ -139,6 +139,8 @@ class CheStereoCamera(object):
         if not self.FindHomography():
             return False
 
+        self.ComputeDisparity()
+
         return True
 
     def DrawMatches(self):
@@ -164,6 +166,24 @@ class CheStereoCamera(object):
         # Return the PointCloud2 message
         return pc2.create_cloud_xyz32(pc_msg.header, self.points_3d.transpose())
 
+    def ComputeDisparity(self):
+        # Create an SGBM StereoMatcher object
+        stereo = cv2.StereoSGBM_create(
+            minDisparity=0,          # Minimum disparity value (usually 0)
+            numDisparities=64,       # Number of disparity levels
+            blockSize=3,             # Block size for matching
+            P1=8 * 1 * 3**2,         # Penalty 1 parameter
+            P2=32 * 1 * 3**2,        # Penalty 2 parameter
+            disp12MaxDiff=1,         # Maximum allowed difference in the left-right disparity
+            preFilterCap=63,         # Pre-filter cap
+            uniquenessRatio=10,      # Uniqueness ratio
+            speckleWindowSize=100,   # Speckle window size
+            speckleRange=1,         # Speckle range
+            #mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
+        )
+        self.disparity_map = stereo.compute(self.left.img, self.right.img)
+        self.disparity_map = cv2.normalize(self.disparity_map, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
 
 class TP3Node(Node):
     
@@ -179,6 +199,7 @@ class TP3Node(Node):
     topic_stereo_pointcloud = '/stereo/pointcloud'
 
     topic_stereo_homography = '/stereo/homography'
+    topic_disparity_map = '/stereo/disparity_map'
 
     def __init__(self):
         super().__init__('tp3_node')
@@ -202,6 +223,7 @@ class TP3Node(Node):
         self.pub_stereo_matches = self.create_publisher(Image, self.topic_stereo_matches, 1)
         self.pub_stereo_pointcloud = self.create_publisher(PointCloud2, self.topic_stereo_pointcloud, 1)
         self.pub_stereo_homography = self.create_publisher(Image, self.topic_stereo_homography, 1)
+        self.pub_disparity_map = self.create_publisher(Image, self.topic_disparity_map, 1)
 
         self.get_logger().info('Start node')
     
@@ -217,6 +239,7 @@ class TP3Node(Node):
             self.PubMatches()
             self.PubPointCloud()
             self.PubStereoHomography()
+            self.PubDisparityMap()
 
     def GenericPubImg(self, pub, img):
         pub.publish(self.bridge.cv2_to_imgmsg(img))
@@ -236,6 +259,8 @@ class TP3Node(Node):
     def PubStereoHomography(self):
         self.GenericPubImg(self.pub_stereo_homography, self.stereo.DrawHomography())
 
+    def PubDisparityMap(self):
+        self.GenericPubImg(self.pub_disparity_map, self.stereo.disparity_map)
 
     # class StereoImgData(object):
 
