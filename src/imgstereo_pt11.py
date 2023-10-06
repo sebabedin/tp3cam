@@ -108,12 +108,12 @@ class CheStereoCamera(object):
         if len(self.good_matches) > self.MIN_MATCH_COUNT:
 
             self.homography, mask = cv2.findHomography(self.pts_left, self.pts_right, cv2.RANSAC,5.0)
-            print(self.homography)
+            # print(self.homography)
 
-            left = np.array([list(x.pt) for x in self.left.kp])
-            right = np.array([list(x.pt) for x in self.right.kp])
-            self.homography, mask = cv2.findHomography(left, right, cv2.RANSAC,5.0)
-            print(self.homography)
+            # left = np.array([list(x.pt) for x in self.left.kp])
+            # right = np.array([list(x.pt) for x in self.right.kp])
+            # self.homography, mask = cv2.findHomography(left, right, cv2.RANSAC,5.0)
+            # print(self.homography)
             
             self.ransac_mask = mask.ravel().tolist()
             return True
@@ -163,13 +163,34 @@ class CheStereoCamera(object):
         self.Triangulate()
         
         if not self.FindHomography():
+            self.node.get_logger().warn('Homography Fault')
             return False
+
+        self.DisparityMap():
         
         if self.first_sterep_image:
             self.first_sterep_image = False
             self.node.get_logger().info(f'camera info self.left.p {self.left.p}')
             self.node.get_logger().info(f'camera info self.right.p {self.right.p}')
         
+        return True
+
+    def DisparityMap(self):
+        # left_img8 = (self.left.img/256).astype('uint8')
+        # right_img8 = (self.right.img/256).astype('uint8')
+        # left_img8 = cv.cvtColor(self.left.img, code)
+        # right_img8 = cv.cvtColor(self.left.img, code)
+
+        # img = self.left.img
+        # img *= 1./255;
+        # left_img8 = cv2.cvtColor(self.left.img, cv2.CV_8U)
+        # right_img8 = cv2.cvtColor(self.right.img, cv2.CV_8U)
+
+        left_img8 = self.left.img
+        right_img8 = self.right.img
+
+        stereo = cv2.StereoBM_create(numDisparities=16, blockSize=15)
+        self.disparity = stereo.compute(left_img8, right_img8)
         return True
 
     def DrawMatches(self):
@@ -208,6 +229,7 @@ class TP3Node(Node):
     topic_stereo_matches = '/stereo/matches'
     topic_stereo_pointcloud = '/stereo/pointcloud'
     topic_stereo_homography = '/stereo/homography'
+    topic_stereo_disparity = '/stereo/disparity'
 
     def __init__(self):
         super().__init__('tp3_node')
@@ -231,6 +253,7 @@ class TP3Node(Node):
         self.pub_stereo_matches = self.create_publisher(Image, self.topic_stereo_matches, 1)
         self.pub_stereo_pointcloud = self.create_publisher(PointCloud2, self.topic_stereo_pointcloud, 1)
         self.pub_stereo_homography = self.create_publisher(Image, self.topic_stereo_homography, 1)
+        self.pub_stereo_disparity = self.create_publisher(Image, self.topic_stereo_disparity, 1)
 
         self.get_logger().info('Start node')
     
@@ -246,6 +269,7 @@ class TP3Node(Node):
             self.PubMatches()
             self.PubPointCloud()
             self.PubStereoHomography()
+            self.PubDispatiry()
 
     def GenericPubImg(self, pub, img):
         pub.publish(self.bridge.cv2_to_imgmsg(img))
@@ -259,6 +283,9 @@ class TP3Node(Node):
     
     def PubPointCloud(self):
         self.pub_stereo_pointcloud.publish(self.stereo.CreatePointCloud())
+    
+    def PubDispatiry(self):
+        self.GenericPubImg(self.pub_stereo_disparity, self.stereo.disparity)
 
     # def PubPointCloud(self):
     #     header = Header()
@@ -276,6 +303,9 @@ class TP3Node(Node):
     
     def PubStereoHomography(self):
         self.GenericPubImg(self.pub_stereo_homography, self.stereo.DrawHomography())
+
+    def PubDisparity(self):
+        self.GenericPubImg(self.pub_stereo_disparity, self.stereo.disparity)
 
 def main(args=None):
     rclpy.init(args=args)
