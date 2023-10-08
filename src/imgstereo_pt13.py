@@ -255,6 +255,8 @@ class CheStereoCamera(object):
                 pts_prev_left = np.float32([self.left.prev_frame.kp[m.queryIdx].pt for m in good_odom_matches])
                 pts_curr_left = np.float32([self.left.frame.kp[m.trainIdx].pt for m in good_odom_matches])
                 R_odom, t_odom = self.MonocularPoseEstimation(pts_prev_left, pts_curr_left, self.left.k.reshape(3,3))
+                R_odom = R_odom.transpose()
+                t_odom = np.dot(-R_odom.transpose(), t_odom)
                 t_odom *= 0.2 # scale?
                 self.t_odom = np.dot(self.R_odom, t_odom) + self.t_odom
                 self.R_odom = np.dot(self.R_odom, R_odom)
