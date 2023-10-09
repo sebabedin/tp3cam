@@ -4,7 +4,8 @@ from rclpy.node import Node
 
 from std_msgs.msg import String
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Pose
+from nav_msgs.msg import Odometry, Path
 #import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs_py import point_cloud2 as pc2
 from cv_bridge import CvBridge
@@ -12,6 +13,7 @@ import cv2
 import numpy as np
 import message_filters
 import transforms3d.quaternions as quaternions
+import tf2_ros as tf
 
 class Frame(object):
     def __init__(self, img, kp, des):
@@ -103,7 +105,7 @@ class CheStereoCamera(object):
     def FindHomography(self):
         if len(self.good_matches) > self.MIN_MATCH_COUNT:
             self.homography, mask = cv2.findHomography(self.pts_left, self.pts_right, cv2.RANSAC,5.0)
-            self.ransac_mask = mask.ravel().tolist()
+            self.ransac_mask = mask.ravel()
             return True
         else:
             self.node.get_logger().warn( "Not enough matches are found - {}/{}".format(len(self.good_matches), self.MIN_MATCH_COUNT) )    
@@ -114,9 +116,8 @@ class CheStereoCamera(object):
 
         points_1 = self.pts_left.reshape(-1,2)
         points_2 = dst.reshape(-1,2)
-        points_1 = points_1[self.ransac_mask]
-        points_2 = points_2[self.ransac_mask]
-        
+        points_1 = points_1[self.ransac_mask == 1]
+        points_2 = points_2[self.ransac_mask == 1]
         for pt1, pt2 in zip(points_1, points_2):
             cv2.circle(self.left.frame.img, pt1.astype(int), 5, (0, 0, 255), -1)  
             cv2.circle(self.right.frame.img, pt2.astype(int), 5, (0, 0, 255), -1) 
@@ -163,9 +164,9 @@ class CheStereoCamera(object):
 
         self.Reconstruction3D()
 
-        R, t = self.MonocularPoseEstimation(self.pts_left, self.pts_right, self.left.k.reshape(3,3))
-        f = self.right.p[0,0]
-        Tx = self.right.p[0,3] / f
+        #R, t = self.MonocularPoseEstimation(self.pts_left, self.pts_right, self.left.k.reshape(3,3), self.right.k.reshape(3,3), normalize=False)
+        #f = self.right.p[0,0]
+        #Tx = self.right.p[0,3] / f
         #print(R)
         #print(Tx*t)
         if not self.MonocularVisualOdometry():
@@ -237,11 +238,18 @@ class CheStereoCamera(object):
         # Return the PointCloud2 message
         return pc2.create_cloud_xyz32(pc_msg.header, self.reconstructed_points)
     
-    def MonocularPoseEstimation(self, pts_1, pts_2, K):
-        essential_matrix, mask = cv2.findEssentialMat(pts_1, pts_2, K, cv2.RANSAC, 0.999, 1.0)
-        retval, R, t, mask = cv2.recoverPose(essential_matrix, pts_1, pts_2, mask=mask)
-        #print(f"retval: {retval}, len pts: {len(pts_1)}")
-        return R,t.reshape(3)
+    def MonocularPoseEstimation(self, pts_1, pts_2, K_1, K_2=None, normalize=False):
+        if normalize:
+            # Normalize for Esential Matrix calculation
+            pts_l_norm = cv2.undistortPoints(np.expand_dims(pts_1, axis=1), cameraMatrix=K_1, distCoeffs=None)
+            pts_r_norm = cv2.undistortPoints(np.expand_dims(pts_2, axis=1), cameraMatrix=K_2, distCoeffs=None)
+            essential_matrix, mask = cv2.findEssentialMat(pts_l_norm, pts_r_norm, focal=1.0, pp=(0., 0.), method=cv2.RANSAC, prob=0.999, threshold=1.0)
+            points, R, t, mask = cv2.recoverPose(essential_matrix, pts_l_norm, pts_r_norm)
+            return R,t.reshape(3)
+        else:
+            essential_matrix, mask = cv2.findEssentialMat(pts_1, pts_2, K_1, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+            retval, R, t, mask = cv2.recoverPose(essential_matrix, pts_1, pts_2, mask=mask)
+            return R,t.reshape(3)
 
     def MonocularVisualOdometry(self):
         if self.left.prev_frame is not None:
@@ -250,8 +258,7 @@ class CheStereoCamera(object):
                 self.left.frame.des,
                 k=2)
             
-            #good_odom_matches,_ = self.Filter_Matches(odom_matches)
-            #if len(good_odom_matches) > self.MIN_MATCH_COUNT:
+
             pts_prev_left = np.float32([self.left.prev_frame.kp[m.queryIdx].pt for m,_ in odom_matches])#good_odom_matches])
             pts_curr_left = np.float32([self.left.frame.kp[m.trainIdx].pt for m,_ in odom_matches])#good_odom_matches])
             R_odom, t_odom = self.MonocularPoseEstimation(pts_prev_left, pts_curr_left, self.left.k.reshape(3,3))
@@ -266,17 +273,23 @@ class CheStereoCamera(object):
     
     def GetPoseMsg(self):
         q_odom = quaternions.mat2quat(self.R_odom)
-        pose_msg = PoseStamped()
-        pose_msg.header.stamp = self.node.get_clock().now().to_msg()
-        pose_msg.header.frame_id = 'odom'
-        pose_msg.pose.position.x = self.t_odom[0]
-        pose_msg.pose.position.y = self.t_odom[1]
-        pose_msg.pose.position.z = self.t_odom[2]
-        pose_msg.pose.orientation.w = q_odom[0]
-        pose_msg.pose.orientation.x = q_odom[1]
-        pose_msg.pose.orientation.y = q_odom[2]
-        pose_msg.pose.orientation.z = q_odom[3]
+        pose_msg = Pose()        
+        pose_msg.position.x = self.t_odom[0]
+        pose_msg.position.y = self.t_odom[1]
+        pose_msg.position.z = self.t_odom[2]
+        pose_msg.orientation.w = q_odom[0]
+        pose_msg.orientation.x = q_odom[1]
+        pose_msg.orientation.y = q_odom[2]
+        pose_msg.orientation.z = q_odom[3]
         return pose_msg
+    
+    def GetOdometryMsg(self):
+        odometry_msg = Odometry()
+        odometry_msg.header.stamp = self.node.get_clock().now().to_msg()
+        odometry_msg.header.frame_id = 'odom'
+        pose = self.GetPoseMsg()
+        odometry_msg.pose.pose = pose
+        return odometry_msg
 
 
 
@@ -299,6 +312,10 @@ class TP3Node(Node):
     topic_reconstruction = '/stereo/reconstruction'
 
     topic_pose = '/pose'
+    
+    topic_odom = '/odom'
+
+    topic_path = '/path'
 
     def __init__(self):
         super().__init__('tp3_node')
@@ -324,8 +341,10 @@ class TP3Node(Node):
         self.pub_stereo_homography = self.create_publisher(Image, self.topic_stereo_homography, 1)
         self.pub_disparity_map = self.create_publisher(Image, self.topic_disparity_map, 1)
         self.pub_reconstruction = self.create_publisher(PointCloud2, self.topic_reconstruction, 1)
-        self.pub_pose = self.create_publisher(PoseStamped, self.topic_pose, 1)
-
+        #self.pub_pose = self.create_publisher(PoseStamped, self.topic_pose, 1)
+        self.pub_odometry = self.create_publisher(Odometry, self.topic_odom, 1)
+        self.pub_path = self.create_publisher(Path, self.topic_path, 1)
+        self.path = Path()
         self.get_logger().info('Start node')
     
     def on_left_info_cb(self, msg):
@@ -369,7 +388,13 @@ class TP3Node(Node):
         self.pub_reconstruction.publish(self.stereo.DrawReconstruction())
 
     def PubEstimatedPose(self):
-        self.pub_pose.publish(self.stereo.GetPoseMsg())
+        odometry_msg = self.stereo.GetOdometryMsg()        
+        self.pub_odometry.publish(odometry_msg)
+        pose_msg = PoseStamped()
+        pose_msg.header = odometry_msg.header
+        pose_msg.pose = odometry_msg.pose.pose
+        self.path.poses.append(pose_msg)
+        self.pub_path.publish(self.path)
 
 def main(args=None):
     rclpy.init(args=args)
