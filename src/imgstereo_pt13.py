@@ -238,8 +238,8 @@ class CheStereoCamera(object):
         return pc2.create_cloud_xyz32(pc_msg.header, self.reconstructed_points)
     
     def MonocularPoseEstimation(self, pts_1, pts_2, K):
-        essential_matrix, mask = cv2.findEssentialMat(pts_1, pts_2, K)
-        retval, R, t, mask = cv2.recoverPose(essential_matrix, pts_1, pts_2)
+        essential_matrix, mask = cv2.findEssentialMat(pts_1, pts_2, K, cv2.RANSAC, 0.999, 1.0)
+        retval, R, t, mask = cv2.recoverPose(essential_matrix, pts_1, pts_2, mask=mask)
         #print(f"retval: {retval}, len pts: {len(pts_1)}")
         return R,t.reshape(3)
 
@@ -250,17 +250,17 @@ class CheStereoCamera(object):
                 self.left.frame.des,
                 k=2)
             
-            good_odom_matches,_ = self.Filter_Matches(odom_matches)
-            if len(good_odom_matches) > self.MIN_MATCH_COUNT:
-                pts_prev_left = np.float32([self.left.prev_frame.kp[m.queryIdx].pt for m in good_odom_matches])
-                pts_curr_left = np.float32([self.left.frame.kp[m.trainIdx].pt for m in good_odom_matches])
-                R_odom, t_odom = self.MonocularPoseEstimation(pts_prev_left, pts_curr_left, self.left.k.reshape(3,3))
-                R_odom = R_odom.transpose()
-                t_odom = np.dot(-R_odom.transpose(), t_odom)
-                t_odom *= 0.2 # scale?
-                self.t_odom = np.dot(self.R_odom, t_odom) + self.t_odom
-                self.R_odom = np.dot(self.R_odom, R_odom)
-                return True
+            #good_odom_matches,_ = self.Filter_Matches(odom_matches)
+            #if len(good_odom_matches) > self.MIN_MATCH_COUNT:
+            pts_prev_left = np.float32([self.left.prev_frame.kp[m.queryIdx].pt for m,_ in odom_matches])#good_odom_matches])
+            pts_curr_left = np.float32([self.left.frame.kp[m.trainIdx].pt for m,_ in odom_matches])#good_odom_matches])
+            R_odom, t_odom = self.MonocularPoseEstimation(pts_prev_left, pts_curr_left, self.left.k.reshape(3,3))
+            R_odom = R_odom.transpose()
+            t_odom = np.dot(-R_odom.transpose(), t_odom)
+            t_odom *= 0.2 # scale?
+            self.t_odom = np.dot(self.R_odom, t_odom) + self.t_odom
+            self.R_odom = np.dot(self.R_odom, R_odom)
+            return True
 
         return False
     
