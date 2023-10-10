@@ -4,7 +4,7 @@ from rclpy.node import Node
 
 from std_msgs.msg import String
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
-from geometry_msgs.msg import PoseStamped, Pose
+from geometry_msgs.msg import PoseStamped, Pose, TransformStamped
 from nav_msgs.msg import Odometry, Path
 #import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs_py import point_cloud2 as pc2
@@ -192,7 +192,7 @@ class CheStereoCamera(object):
 
         # Set the header information
         pc_msg.header.stamp = self.node.get_clock().now().to_msg()
-        pc_msg.header.frame_id = "map"  # Set the appropriate frame_id
+        pc_msg.header.frame_id = "cameraLeft"  # Set the appropriate frame_id
 
         # Return the PointCloud2 message
         return pc2.create_cloud_xyz32(pc_msg.header, self.points_3d.transpose())
@@ -233,7 +233,7 @@ class CheStereoCamera(object):
 
         # Set the header information
         pc_msg.header.stamp = self.node.get_clock().now().to_msg()
-        pc_msg.header.frame_id = "map"  # Set the appropriate frame_id
+        pc_msg.header.frame_id = "cameraLeft"
 
         # Return the PointCloud2 message
         return pc2.create_cloud_xyz32(pc_msg.header, self.reconstructed_points)
@@ -264,7 +264,7 @@ class CheStereoCamera(object):
             R_odom, t_odom = self.MonocularPoseEstimation(pts_prev_left, pts_curr_left, self.left.k.reshape(3,3))
             R_odom = R_odom.transpose()
             t_odom = np.dot(-R_odom.transpose(), t_odom)
-            t_odom *= 0.2 # scale?
+            t_odom *= 1 # scale?
             self.t_odom = np.dot(self.R_odom, t_odom) + self.t_odom
             self.R_odom = np.dot(self.R_odom, R_odom)
             return True
@@ -345,6 +345,9 @@ class TP3Node(Node):
         self.pub_odometry = self.create_publisher(Odometry, self.topic_odom, 1)
         self.pub_path = self.create_publisher(Path, self.topic_path, 1)
         self.path = Path()
+        self.static_tf_broadcaster = tf.StaticTransformBroadcaster(self)
+        self.tf_broadcaster = tf.TransformBroadcaster(self)
+
         self.get_logger().info('Start node')
     
     def on_left_info_cb(self, msg):
@@ -362,6 +365,7 @@ class TP3Node(Node):
             self.PubDisparityMap()
             self.PubReconstruction()
             self.PubEstimatedPose()
+            self.PubStaticTfCameras()
 
     def GenericPubImg(self, pub, img):
         pub.publish(self.bridge.cv2_to_imgmsg(img))
@@ -393,8 +397,48 @@ class TP3Node(Node):
         pose_msg = PoseStamped()
         pose_msg.header = odometry_msg.header
         pose_msg.pose = odometry_msg.pose.pose
+        self.path.header = odometry_msg.header
         self.path.poses.append(pose_msg)
         self.pub_path.publish(self.path)
+
+        transform_msg = TransformStamped()
+        transform_msg.header = odometry_msg.header
+        transform_msg.child_frame_id = 'cameraLeft'    # Child frame ID
+
+        # Set the translation (position) and rotation (quaternion) for the transform
+        transform_msg.transform.translation.x = pose_msg.pose.position.x
+        transform_msg.transform.translation.y = pose_msg.pose.position.y
+        transform_msg.transform.translation.z = pose_msg.pose.position.z
+        transform_msg.transform.rotation.x = pose_msg.pose.orientation.x
+        transform_msg.transform.rotation.y = pose_msg.pose.orientation.y
+        transform_msg.transform.rotation.z = pose_msg.pose.orientation.z
+        transform_msg.transform.rotation.w = pose_msg.pose.orientation.w
+
+        # Publish the transform
+        self.tf_broadcaster.sendTransform(transform_msg)
+
+    
+    def PubStaticTfCameras(self):
+        static_transform = TransformStamped()
+        static_transform.header.stamp = self.get_clock().now().to_msg()
+        static_transform.header.frame_id = 'cameraLeft'  # Parent frame ID
+        static_transform.child_frame_id = 'cameraRight'    # Child frame ID
+
+        # Define the translation (position) and rotation (quaternion) for the transform
+        f = self.stereo.right.p[0,0]
+        baseline = -self.stereo.right.p[0,3] / f
+        static_transform.transform.translation.x = baseline
+        static_transform.transform.translation.y = 0.0
+        static_transform.transform.translation.z = 0.0
+        # .. because cameras are rectified!
+        static_transform.transform.rotation.x = 0.0
+        static_transform.transform.rotation.y = 0.0
+        static_transform.transform.rotation.z = 0.0
+        static_transform.transform.rotation.w = 1.0
+
+        # Publish the static transform
+        self.static_tf_broadcaster.sendTransform(static_transform)
+
 
 def main(args=None):
     rclpy.init(args=args)
