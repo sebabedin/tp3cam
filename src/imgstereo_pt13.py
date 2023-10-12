@@ -164,7 +164,7 @@ class CheStereoCamera(object):
 
         self.Reconstruction3D()
 
-        #R, t = self.MonocularPoseEstimation(self.pts_left, self.pts_right, self.left.k.reshape(3,3), self.right.k.reshape(3,3), normalize=False)
+        #R, t = self.MonocularPoseEstimation(self.pts_left, self.pts_right, self.left.p[:3,:3])
         #f = self.right.p[0,0]
         #Tx = self.right.p[0,3] / f
         #print(R)
@@ -240,6 +240,13 @@ class CheStereoCamera(object):
     
     def MonocularPoseEstimation(self, pts_1, pts_2, K_1, K_2=None, normalize=False):
         if normalize:
+            # findEssentialMat assumes that points1 and points2 are feature points from cameras 
+            # with the same camera intrinsic matrix. If this assumption does not hold 
+            # for your use case, use undistortPoints() with P = cv::NoArray() for both cameras 
+            # to transform image points to normalized image coordinates, 
+            # which are valid for the identity camera intrinsic matrix. 
+            # When passing these coordinates, pass the identity matrix for cameraMatrix parameter in findEssentialMat.
+            # See https://stackoverflow.com/questions/33906111/how-do-i-estimate-positions-of-two-cameras-in-opencv
             # Normalize for Esential Matrix calculation
             pts_l_norm = cv2.undistortPoints(np.expand_dims(pts_1, axis=1), cameraMatrix=K_1, distCoeffs=None)
             pts_r_norm = cv2.undistortPoints(np.expand_dims(pts_2, axis=1), cameraMatrix=K_2, distCoeffs=None)
@@ -261,10 +268,10 @@ class CheStereoCamera(object):
 
             pts_prev_left = np.float32([self.left.prev_frame.kp[m.queryIdx].pt for m,_ in odom_matches])#good_odom_matches])
             pts_curr_left = np.float32([self.left.frame.kp[m.trainIdx].pt for m,_ in odom_matches])#good_odom_matches])
-            R_odom, t_odom = self.MonocularPoseEstimation(pts_prev_left, pts_curr_left, self.left.k.reshape(3,3))
+            R_odom, t_odom = self.MonocularPoseEstimation(pts_prev_left, pts_curr_left, self.left.p[:3,:3])
             R_odom = R_odom.transpose()
             t_odom = np.dot(-R_odom.transpose(), t_odom)
-            t_odom *= 1 # scale?
+            t_odom *= 0.02 # scale?
             self.t_odom = np.dot(self.R_odom, t_odom) + self.t_odom
             self.R_odom = np.dot(self.R_odom, R_odom)
             return True
