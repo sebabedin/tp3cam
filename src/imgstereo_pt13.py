@@ -79,8 +79,8 @@ class CheStereoCamera(object):
 
         self.bridge = CvBridge()
         self.bf = cv2.BFMatcher()
-        self.R_odom = np.eye(3)
-        self.t_odom = np.zeros(3)
+        self.R_w_i = np.eye(3)
+        self.t_w_i = np.zeros(3)
 
     def Filter_Matches(self, matches):
         good_matches_mask = [[0,0] for i in range(len(matches))]
@@ -166,9 +166,9 @@ class CheStereoCamera(object):
 
         #R, t = self.MonocularPoseEstimation(self.pts_left, self.pts_right, self.left.p[:3,:3])
         #f = self.right.p[0,0]
-        #Tx = self.right.p[0,3] / f
+        #baseline = -self.right.p[0,3] / f
         #print(R)
-        #print(Tx*t)
+        #print(baseline*t)
         if not self.MonocularVisualOdometry():
             return False
         
@@ -239,6 +239,11 @@ class CheStereoCamera(object):
         return pc2.create_cloud_xyz32(pc_msg.header, self.reconstructed_points)
     
     def MonocularPoseEstimation(self, pts_1, pts_2, K_1, K_2=None, normalize=False):
+        # Returns R_2_1, t_2_1 where:
+        # p_2 = R_2_1 * p_1 + t_2_1 
+        # or (if we use homogeneous matrix and construct T_2_1 4x4 matrix)
+        # _p_2 = T_2_1 * _p_1
+
         if normalize:
             # findEssentialMat assumes that points1 and points2 are feature points from cameras 
             # with the same camera intrinsic matrix. If this assumption does not hold 
@@ -251,12 +256,12 @@ class CheStereoCamera(object):
             pts_l_norm = cv2.undistortPoints(np.expand_dims(pts_1, axis=1), cameraMatrix=K_1, distCoeffs=None)
             pts_r_norm = cv2.undistortPoints(np.expand_dims(pts_2, axis=1), cameraMatrix=K_2, distCoeffs=None)
             essential_matrix, mask = cv2.findEssentialMat(pts_l_norm, pts_r_norm, focal=1.0, pp=(0., 0.), method=cv2.RANSAC, prob=0.999, threshold=1.0)
-            points, R, t, mask = cv2.recoverPose(essential_matrix, pts_l_norm, pts_r_norm)
-            return R,t.reshape(3)
+            points, R_2_1, t_2_1, mask = cv2.recoverPose(essential_matrix, pts_l_norm, pts_r_norm)
+            return R_2_1,t_2_1.reshape(3)
         else:
             essential_matrix, mask = cv2.findEssentialMat(pts_1, pts_2, K_1, method=cv2.RANSAC, prob=0.999, threshold=1.0)
-            retval, R, t, mask = cv2.recoverPose(essential_matrix, pts_1, pts_2, mask=mask)
-            return R,t.reshape(3)
+            retval, R_2_1, t_2_1, mask = cv2.recoverPose(essential_matrix, pts_1, pts_2, mask=mask)
+            return R_2_1,t_2_1.reshape(3)
 
     def MonocularVisualOdometry(self):
         if self.left.prev_frame is not None:
@@ -265,25 +270,26 @@ class CheStereoCamera(object):
                 self.left.frame.des,
                 k=2)
             
-
             pts_prev_left = np.float32([self.left.prev_frame.kp[m.queryIdx].pt for m,_ in odom_matches])#good_odom_matches])
-            pts_curr_left = np.float32([self.left.frame.kp[m.trainIdx].pt for m,_ in odom_matches])#good_odom_matches])
-            R_odom, t_odom = self.MonocularPoseEstimation(pts_prev_left, pts_curr_left, self.left.p[:3,:3])
-            R_odom = R_odom.transpose()
-            t_odom = np.dot(-R_odom.transpose(), t_odom)
-            t_odom *= 0.02 # scale?
-            self.t_odom = np.dot(self.R_odom, t_odom) + self.t_odom
-            self.R_odom = np.dot(self.R_odom, R_odom)
+            pts_curr_left = np.float32([self.left.frame.kp[m.trainIdx].pt for m,_ in odom_matches])#good_odom_matches])            
+            R_j_i, t_j_i = self.MonocularPoseEstimation(pts_prev_left, pts_curr_left, self.left.p[:3,:3])
+            
+            R_i_j = R_j_i.transpose()
+            t_i_j = np.dot(-R_j_i.transpose(), t_j_i)
+            t_i_j *= 0.02 # scale?
+
+            self.t_w_i = np.dot(self.R_w_i, t_i_j) + self.t_w_i
+            self.R_w_i = np.dot(self.R_w_i, R_i_j)
             return True
 
         return False
     
     def GetPoseMsg(self):
-        q_odom = quaternions.mat2quat(self.R_odom)
+        q_odom = quaternions.mat2quat(self.R_w_i)
         pose_msg = Pose()        
-        pose_msg.position.x = self.t_odom[0]
-        pose_msg.position.y = self.t_odom[1]
-        pose_msg.position.z = self.t_odom[2]
+        pose_msg.position.x = self.t_w_i[0]
+        pose_msg.position.y = self.t_w_i[1]
+        pose_msg.position.z = self.t_w_i[2]
         pose_msg.orientation.w = q_odom[0]
         pose_msg.orientation.x = q_odom[1]
         pose_msg.orientation.y = q_odom[2]
